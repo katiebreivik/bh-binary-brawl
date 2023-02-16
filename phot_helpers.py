@@ -4,8 +4,11 @@ import numpy as np
 import astropy.units as u
 import astropy.coordinates as coord
 from astropy.coordinates import SkyCoord
-from dustmaps.bayestar import BayestarQuery
-
+#from dustmaps.bayestar import BayestarQuery
+import mwdust
+combined19= mwdust.Combined19()
+from schwimmbad import MultiPool
+import tqdm
 def log_g(mass, radius):
     """ Computes log g in cgs units
     Parameters
@@ -119,6 +122,12 @@ def addMags(mag1, mag2):
     return magsum
 
 
+def get_EB_V(dat):
+    l, b, D = dat
+    EB_V = combined19(l, b, D)
+    return EB_V
+    
+
 def get_extinction(dat):
     """Calculates the visual extinction values from the dat
     DataFrame using the dustmaps. bayestar query
@@ -138,10 +147,23 @@ def get_extinction(dat):
                  frame=coord.Galactocentric,
                  galcen_distance = 8.5 * u.kpc,
                  z_sun = 36.0e-3 * u.kpc)
-    bayestar = BayestarQuery(max_samples=2, version='bayestar2019')
-    ebv = bayestar(c, mode='random_sample')
-    Av = 3.2 * ebv
-        
+    
+    galactic = c.galactic
+    
+    l = np.arange(min(galactic.l.value), max(galactic.l.value) + 5, 5)
+    b = np.arange(min(galactic.b.value), max(galactic.b.value) + 1, 1)
+
+    EB_V = np.zeros(len(galactic))
+    for l_hi, l_low in tqdm.tqdm(zip(l[1:], l[:-1]), total=len(l[1:])):
+        l_mid = (l_hi - l_low)/2
+        for b_hi, b_low in zip(b[1:], b[:-1]):
+            b_mid = (b_hi - b_low)/2
+            ind, = np.where((galactic.l.value < l_hi) & (galactic.l.value >= l_low) & 
+                            (galactic.b.value < b_hi) & (galactic.b.value >= b_low))
+            if len(ind) > 0:            
+                EB_V[ind] = combined19(l_mid + l_low, b_mid + b_low, galactic.distance.value[ind])
+    Av = 3.2 * EB_V
+    
     return Av  
 
 
@@ -208,9 +230,9 @@ def get_phot(sim_set, sys_type, bc_grid):
     """
     sim_set['Av'] = get_extinction(sim_set)
     print('pop size before extinction cut: {}'.format(len(sim_set)))
-    sim_set.loc[sim_set.Av > 6, ['Av']] = 6
-    sim_set = sim_set.fillna(6)
-    print('pop size after extinction cut: {}'.format(len(sim_set)))
+    #sim_set.loc[sim_set.Av > 6, ['Av']] = 6
+    #sim_set = sim_set.fillna(6)
+    #print('pop size after extinction cut: {}'.format(len(sim_set)))
     
     if sys_type == 0:
         phot_1 = get_photometry_1(sim_set, bc_grid)
